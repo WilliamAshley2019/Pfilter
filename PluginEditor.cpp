@@ -12,6 +12,19 @@ FrequencyResponseDisplay::~FrequencyResponseDisplay()
     stopTimer();
 }
 
+void FrequencyResponseDisplay::timerCallback()
+{
+    if (!audioProcessor.isVisualizerActive())
+    {
+        stopTimer();
+        repaint();
+        return;
+    }
+
+    updateResponseCurve();
+    repaint();
+}
+
 void FrequencyResponseDisplay::drawGrid(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
@@ -214,6 +227,14 @@ void FrequencyResponseDisplay::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colours::black);
 
+    if (!audioProcessor.isVisualizerActive())
+    {
+        g.setColour(juce::Colours::grey);
+        g.setFont(juce::FontOptions(18.0f));
+        g.drawText("Visualizer Disabled - Click LED to Enable", getLocalBounds(), juce::Justification::centred);
+        return;
+    }
+
     drawGrid(g);
     drawWaveforms(g);
 
@@ -244,14 +265,21 @@ void FrequencyResponseDisplay::resized()
     updateResponseCurve();
 }
 
-void FrequencyResponseDisplay::timerCallback()
+// ADDED: Missing method implementations
+void FrequencyResponseDisplay::startVisualizerTimer()
 {
-    updateResponseCurve();
+    if (!isTimerRunning())
+        startTimerHz(30);
+}
+
+void FrequencyResponseDisplay::stopVisualizerTimer()
+{
+    stopTimer();
     repaint();
 }
 
 DynamicFilterProcessorEditor::DynamicFilterProcessorEditor(DynamicFilterProcessor& p)
-    : AudioProcessorEditor(&p), audioProcessor(p), responseDisplay(p)
+    : juce::AudioProcessorEditor(&p), audioProcessor(p), responseDisplay(p)
 {
     setSize(850, 580);
     setLookAndFeel(&customLookAndFeel);
@@ -352,8 +380,24 @@ DynamicFilterProcessorEditor::DynamicFilterProcessorEditor(DynamicFilterProcesso
         audioProcessor.apvts, "bypass", bypassButton);
 
     addAndMakeVisible(visualizerButton);
+    visualizerButton.setClickingTogglesState(true);
+    visualizerButton.setToggleState(true, juce::dontSendNotification);
     visualizerAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         audioProcessor.apvts, "visualizerEnabled", visualizerButton);
+
+    visualizerButton.onClick = [this]()
+        {
+            bool isActive = visualizerButton.getToggleState();
+            audioProcessor.setVisualizerState(isActive);
+
+            if (isActive)
+                responseDisplay.startVisualizerTimer();
+            else
+                responseDisplay.stopVisualizerTimer();
+        };
+
+    audioProcessor.setVisualizerState(true);
+    responseDisplay.startVisualizerTimer();
 
     addAndMakeVisible(responseDisplay);
 

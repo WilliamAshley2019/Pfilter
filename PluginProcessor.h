@@ -45,6 +45,9 @@ public:
     void getInputWaveform(std::vector<float>& waveform);
     void getOutputWaveform(std::vector<float>& waveform);
 
+    void setVisualizerState(bool active) { visualizerActive.store(active, std::memory_order_relaxed); }
+    bool isVisualizerActive() const { return visualizerActive.load(std::memory_order_relaxed); }
+
 private:
     using Filter = juce::dsp::IIR::Filter<float>;
     using FilterCoefs = juce::dsp::IIR::Coefficients<float>;
@@ -90,6 +93,9 @@ private:
     std::atomic<float> inputLevel{ 0.0f };
     std::atomic<float> outputLevel{ 0.0f };
     std::atomic<float> gainReduction{ 0.0f };
+
+    // ADDED: Missing visualizerActive member
+    std::atomic<bool> visualizerActive{ true };
 
     float inputLevelSum{ 0.0f };
     float outputLevelSum{ 0.0f };

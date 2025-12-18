@@ -12,6 +12,10 @@ public:
     void resized() override;
     void timerCallback() override;
 
+    // Add missing public methods
+    void startVisualizerTimer();
+    void stopVisualizerTimer();
+
 private:
     DynamicFilterProcessor& audioProcessor;
     std::vector<float> magnitudeData;
@@ -69,6 +73,25 @@ public:
         pointer.applyTransform(juce::AffineTransform::rotation(angle).translated(centreX, centreY));
         g.setColour(juce::Colours::white);
         g.fillPath(pointer);
+    }
+
+    void drawToggleButton(juce::Graphics& g, juce::ToggleButton& button,
+        bool shouldDrawButtonAsHighlighted, bool /*shouldDrawButtonAsDown*/) override  // Remove unused parameter name
+    {
+        auto bounds = button.getLocalBounds().toFloat().reduced(2);
+        auto isOn = button.getToggleState();
+
+        g.setColour(isOn ? juce::Colours::green : juce::Colours::darkred);
+        g.fillEllipse(bounds);
+
+        g.setColour(isOn ? juce::Colours::lightgreen : juce::Colours::red);
+        g.fillEllipse(bounds.reduced(2));
+
+        if (shouldDrawButtonAsHighlighted)
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.3f));
+            g.fillEllipse(bounds.reduced(1));
+        }
     }
 };
 

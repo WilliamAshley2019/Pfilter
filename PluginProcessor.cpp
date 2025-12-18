@@ -66,6 +66,10 @@ void DynamicFilterProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     outputWaveformData.resize(waveformSize, 0.0f);
     waveformWritePos = 0;
 
+    // Initialize visualizer state from APVTS
+    visualizerActive.store(*apvts.getRawParameterValue("visualizerEnabled") > 0.5f,
+        std::memory_order_relaxed);
+
     updateFilterCoefficients();
 
     inputLevel.store(0.0f, std::memory_order_relaxed);
@@ -212,11 +216,10 @@ void DynamicFilterProcessor::updateFilterCoefficients()
     }
 }
 
-void DynamicFilterProcessor::captureWaveforms(const juce::AudioBuffer<float>& input, const juce::AudioBuffer<float>& output)
+void DynamicFilterProcessor::captureWaveforms(const juce::AudioBuffer<float>& input,
+    const juce::AudioBuffer<float>& output)
 {
-    bool visualizerEnabled = *apvts.getRawParameterValue("visualizerEnabled") > 0.5f;
-
-    if (!visualizerEnabled)
+    if (!visualizerActive.load(std::memory_order_relaxed))
         return;
 
     juce::ScopedLock lock(waveformLock);
@@ -366,9 +369,32 @@ void DynamicFilterProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         bool qBypass = *apvts.getRawParameterValue("qBypass") > 0.5f;
         bool resonanceBypass = *apvts.getRawParameterValue("resonanceBypass") > 0.5f;
 
-        if (!cutoffBypass) smoothedCutoff.setTargetValue(targetCutoff);
-        if (!qBypass) smoothedQ.setTargetValue(targetQ);
-        if (!resonanceBypass) smoothedResonance.setTargetValue(targetResonance);
+        if (!cutoffBypass)
+        {
+            smoothedCutoff.setTargetValue(targetCutoff);
+        }
+        else
+        {
+            smoothedCutoff.setTargetValue(1000.0f);
+        }
+
+        if (!qBypass)
+        {
+            smoothedQ.setTargetValue(targetQ);
+        }
+        else
+        {
+            smoothedQ.setTargetValue(0.707f);
+        }
+
+        if (!resonanceBypass)
+        {
+            smoothedResonance.setTargetValue(targetResonance);
+        }
+        else
+        {
+            smoothedResonance.setTargetValue(0.0f);
+        }
 
         bool structuralChange = (newType != previousType) ||
             (newSlope != previousSlope) ||
