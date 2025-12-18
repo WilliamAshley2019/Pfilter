@@ -48,15 +48,22 @@ void DynamicFilterProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
 
     smoothedCutoff.reset(sampleRate, 0.02);
     smoothedQ.reset(sampleRate, 0.02);
+    smoothedResonance.reset(sampleRate, 0.02);
 
     float initCutoff = *apvts.getRawParameterValue("cutoff");
     float initQ = *apvts.getRawParameterValue("q");
+    float initResonance = *apvts.getRawParameterValue("resonance");
 
     smoothedCutoff.setCurrentAndTargetValue(initCutoff);
     smoothedQ.setCurrentAndTargetValue(initQ);
+    smoothedResonance.setCurrentAndTargetValue(initResonance);
 
     currentCutoff = initCutoff;
     currentQ = initQ;
+    currentResonance = initResonance;
+
+    inputSpectrumBuffer.setSize(2, samplesPerBlock);
+    inputMagnitudes.resize(512, 0.0f);
 
     updateFilterCoefficients();
 
@@ -92,27 +99,31 @@ void DynamicFilterProcessor::updateFilterCoefficients()
 {
     float cutoff = currentCutoff;
     float q = currentQ;
+    float resonance = currentResonance;
     int type = currentType;
     int slopeIndex = currentSlope / 12 - 1;
     int characteristic = currentCharacteristic;
 
     int slope = (slopeIndex + 1) * 12;
-
     int numStages = slope / 12;
     numStages = juce::jmin(numStages, 4);
+    currentNumStages = numStages;
 
-    float stageQ = q;
+    float effectiveQ = q + (resonance / 10.0f);
+    effectiveQ = juce::jlimit(0.1f, 20.0f, effectiveQ);
+
+    float stageQ = effectiveQ;
     if (characteristic == BUTTERWORTH && numStages > 1)
     {
-        stageQ = 0.707f / std::sqrt(static_cast<float>(numStages));
+        stageQ = effectiveQ * 0.707f / std::sqrt(static_cast<float>(numStages));
     }
     else if (characteristic == LINKWITZ_RILEY)
     {
-        stageQ = 0.5f;
+        stageQ = effectiveQ * 0.5f;
     }
     else if (characteristic == BESSEL)
     {
-        stageQ = 0.577f / std::sqrt(static_cast<float>(numStages));
+        stageQ = effectiveQ * 0.577f / std::sqrt(static_cast<float>(numStages));
     }
 
     juce::ScopedLock lock(coefficientLock);
@@ -167,27 +178,41 @@ void DynamicFilterProcessor::updateFilterCoefficients()
 
     for (int stage = numStages; stage < 4; ++stage)
     {
-        auto unity = FilterCoefs::makeAllPass(currentSampleRate, 1000.0f);
+        auto bypass = FilterCoefs::makeAllPass(currentSampleRate, 1000.0f);
+
         if (stage == 0)
         {
-            *filterChainL.get<0>().coefficients = *unity;
-            *filterChainR.get<0>().coefficients = *unity;
+            *filterChainL.get<0>().coefficients = *bypass;
+            *filterChainR.get<0>().coefficients = *bypass;
         }
         else if (stage == 1)
         {
-            *filterChainL.get<1>().coefficients = *unity;
-            *filterChainR.get<1>().coefficients = *unity;
+            *filterChainL.get<1>().coefficients = *bypass;
+            *filterChainR.get<1>().coefficients = *bypass;
         }
         else if (stage == 2)
         {
-            *filterChainL.get<2>().coefficients = *unity;
-            *filterChainR.get<2>().coefficients = *unity;
+            *filterChainL.get<2>().coefficients = *bypass;
+            *filterChainR.get<2>().coefficients = *bypass;
         }
         else if (stage == 3)
         {
-            *filterChainL.get<3>().coefficients = *unity;
-            *filterChainR.get<3>().coefficients = *unity;
+            *filterChainL.get<3>().coefficients = *bypass;
+            *filterChainR.get<3>().coefficients = *bypass;
         }
+    }
+}
+
+void DynamicFilterProcessor::captureInputSpectrum(const juce::AudioBuffer<float>& buffer)
+{
+    juce::ScopedLock lock(inputSpectrumLock);
+
+    int numSamples = juce::jmin(buffer.getNumSamples(), inputSpectrumBuffer.getNumSamples());
+    int numChannels = juce::jmin(buffer.getNumChannels(), inputSpectrumBuffer.getNumChannels());
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        inputSpectrumBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
     }
 }
 
@@ -238,6 +263,12 @@ void DynamicFilterProcessor::updateMetrics(const juce::AudioBuffer<float>& input
     }
 }
 
+void DynamicFilterProcessor::getInputFrequencyResponse(std::vector<float>& magnitudes)
+{
+    juce::ScopedLock lock(inputSpectrumLock);
+    magnitudes = inputMagnitudes;
+}
+
 void DynamicFilterProcessor::getFrequencyResponse(std::vector<float>& magnitudes)
 {
     juce::ScopedLock lock(coefficientLock);
@@ -281,6 +312,8 @@ void DynamicFilterProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     juce::AudioBuffer<float> inputCopy;
     inputCopy.makeCopyOf(buffer);
 
+    captureInputSpectrum(inputCopy);
+
     bool bypass = *apvts.getRawParameterValue("bypass") > 0.5f;
     bypassState = bypass;
 
@@ -288,12 +321,14 @@ void DynamicFilterProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     {
         float targetCutoff = *apvts.getRawParameterValue("cutoff");
         float targetQ = *apvts.getRawParameterValue("q");
+        float targetResonance = *apvts.getRawParameterValue("resonance");
         int newType = static_cast<int>(*apvts.getRawParameterValue("type"));
         int newSlope = (static_cast<int>(*apvts.getRawParameterValue("slope")) + 1) * 12;
         int newChar = static_cast<int>(*apvts.getRawParameterValue("characteristic"));
 
         smoothedCutoff.setTargetValue(targetCutoff);
         smoothedQ.setTargetValue(targetQ);
+        smoothedResonance.setTargetValue(targetResonance);
 
         bool structuralChange = (newType != previousType) ||
             (newSlope != previousSlope) ||
@@ -314,6 +349,7 @@ void DynamicFilterProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
 
             currentCutoff = smoothedCutoff.getNextValue();
             currentQ = smoothedQ.getNextValue();
+            currentResonance = smoothedResonance.getNextValue();
 
             updateFilterCoefficients();
         }
@@ -325,14 +361,17 @@ void DynamicFilterProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         {
             float smoothCutoff = smoothedCutoff.getNextValue();
             float smoothQ = smoothedQ.getNextValue();
+            float smoothResonance = smoothedResonance.getNextValue();
 
             bool needsUpdate = std::abs(smoothCutoff - currentCutoff) > 0.1f ||
-                std::abs(smoothQ - currentQ) > 0.001f;
+                std::abs(smoothQ - currentQ) > 0.001f ||
+                std::abs(smoothResonance - currentResonance) > 0.01f;
 
             if (needsUpdate)
             {
                 currentCutoff = smoothCutoff;
                 currentQ = smoothQ;
+                currentResonance = smoothResonance;
                 updateFilterCoefficients();
             }
 
@@ -344,7 +383,14 @@ void DynamicFilterProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
 
                 juce::dsp::AudioBlock<float> block(tempBuffer);
                 juce::dsp::ProcessContextReplacing<float> context(block);
-                filterChainL.process(context);
+
+                for (int stage = 0; stage < currentNumStages; ++stage)
+                {
+                    if (stage == 0) filterChainL.get<0>().process(context);
+                    else if (stage == 1) filterChainL.get<1>().process(context);
+                    else if (stage == 2) filterChainL.get<2>().process(context);
+                    else if (stage == 3) filterChainL.get<3>().process(context);
+                }
 
                 buffer.setSample(0, sample, tempBuffer.getSample(0, 0));
             }
@@ -357,7 +403,14 @@ void DynamicFilterProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
 
                 juce::dsp::AudioBlock<float> block(tempBuffer);
                 juce::dsp::ProcessContextReplacing<float> context(block);
-                filterChainR.process(context);
+
+                for (int stage = 0; stage < currentNumStages; ++stage)
+                {
+                    if (stage == 0) filterChainR.get<0>().process(context);
+                    else if (stage == 1) filterChainR.get<1>().process(context);
+                    else if (stage == 2) filterChainR.get<2>().process(context);
+                    else if (stage == 3) filterChainR.get<3>().process(context);
+                }
 
                 buffer.setSample(1, sample, tempBuffer.getSample(0, 0));
             }
@@ -397,17 +450,30 @@ juce::AudioProcessorValueTreeState::ParameterLayout DynamicFilterProcessor::crea
         juce::ParameterID("bypass", 1), "Bypass", false));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("cutoff", 1), "Cutoff Frequency",
+        juce::ParameterID("cutoff", 1),
+        "Cutoff Frequency",
         juce::NormalisableRange<float>(20.0f, 20000.0f, 0.1f, 0.3f),
         1000.0f,
-        juce::String(),
-        juce::AudioProcessorParameter::genericParameter,
-        [](float value, int) { return juce::String(static_cast<int>(value)) + " Hz"; }));
+        juce::AudioParameterFloatAttributes()
+        .withLabel(" Hz")
+        .withStringFromValueFunction([](float value, int) {
+            return juce::String(static_cast<int>(value)) + " Hz";
+            })));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID("q", 1), "Q / Resonance",
+        juce::ParameterID("q", 1), "Q Factor",
         juce::NormalisableRange<float>(0.1f, 10.0f, 0.01f, 0.5f),
         0.707f));
+
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID("resonance", 1), "Resonance",
+        juce::NormalisableRange<float>(-10.0f, 10.0f, 0.01f),
+        0.0f,
+        juce::AudioParameterFloatAttributes()
+        .withLabel(" dB")
+        .withStringFromValueFunction([](float value, int) {
+            return juce::String(value, 1) + " dB";
+            })));
 
     juce::StringArray filterTypes;
     filterTypes.add("High-Pass");

@@ -16,63 +16,128 @@ void FrequencyResponseDisplay::drawGrid(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
 
-    std::vector<float> freqs = { 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000 };
+    std::vector<float> freqs = { 20, 50, 80, 100, 250, 500, 1000, 2000, 3000, 4000, 5000, 8000, 10000, 12000, 14000, 15000, 18000, 20000 };
+
     for (auto freq : freqs)
     {
         float x = juce::jmap(std::log10(freq), std::log10(20.0f), std::log10(20000.0f),
             bounds.getX(), bounds.getRight());
-        g.setColour(juce::Colours::darkgrey.withAlpha(0.3f));
-        g.drawVerticalLine(juce::roundToInt(x), bounds.getY(), bounds.getBottom());
+
+        g.setColour(juce::Colours::white.withAlpha(0.15f));
+
+        float dashLength = 4.0f;
+        float gapLength = 4.0f;
+        float y = bounds.getY();
+
+        while (y < bounds.getBottom())
+        {
+            float segmentEnd = juce::jmin(y + dashLength, bounds.getBottom());
+            g.drawLine(x, y, x, segmentEnd, 1.0f);
+            y = segmentEnd + gapLength;
+        }
     }
 
-    for (int db = -48; db <= 12; db += 12)
+    for (int db = -48; db <= 12; db += 4)
     {
         float y = juce::jmap((float)db, -48.0f, 12.0f, bounds.getBottom(), bounds.getY());
-        g.setColour(juce::Colours::darkgrey.withAlpha(0.3f));
-        g.drawHorizontalLine(juce::roundToInt(y), bounds.getX(), bounds.getRight());
+
+        g.setColour(juce::Colours::white.withAlpha(0.15f));
+
+        float dashLength = 4.0f;
+        float gapLength = 4.0f;
+        float x = bounds.getX();
+
+        while (x < bounds.getRight())
+        {
+            float segmentEnd = juce::jmin(x + dashLength, bounds.getRight());
+            g.drawLine(x, y, segmentEnd, y, 1.0f);
+            x = segmentEnd + gapLength;
+        }
     }
 
     float zeroY = juce::jmap(0.0f, -48.0f, 12.0f, bounds.getBottom(), bounds.getY());
-    g.setColour(juce::Colours::darkgrey.withAlpha(0.6f));
-    g.drawHorizontalLine(juce::roundToInt(zeroY), bounds.getX(), bounds.getRight());
+    g.setColour(juce::Colours::white.withAlpha(0.3f));
+
+    float dashLength = 6.0f;
+    float gapLength = 4.0f;
+    float x = bounds.getX();
+
+    while (x < bounds.getRight())
+    {
+        float segmentEnd = juce::jmin(x + dashLength, bounds.getRight());
+        g.drawLine(x, zeroY, segmentEnd, zeroY, 1.5f);
+        x = segmentEnd + gapLength;
+    }
 }
 
 void FrequencyResponseDisplay::drawFrequencyLabels(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
-    g.setColour(juce::Colours::lightgrey);
-    g.setFont(10.0f);
 
-    std::vector<std::pair<float, juce::String>> labels = {
-    {20.0f, "20"}, {100.0f, "100"}, {1000.0f, "1k"}, {10000.0f, "10k"}, {20000.0f, "20k"}
+    g.setColour(juce::Colours::lightgrey);
+    g.setFont(juce::FontOptions(10.0f));
+
+    std::vector<std::pair<float, juce::String>> mainLabels = {
+        {20.0f, "20"}, {100.0f, "100"}, {1000.0f, "1k"}, {10000.0f, "10k"}, {20000.0f, "20k"}
     };
 
-    for (auto& label : labels)
+    for (auto& label : mainLabels)
     {
         float x = juce::jmap(std::log10(label.first), std::log10(20.0f), std::log10(20000.0f),
             bounds.getX(), bounds.getRight());
-        g.drawText(label.second, x - 15, bounds.getBottom() - 15, 30, 15,
-            juce::Justification::centred);
+        g.drawText(label.second, static_cast<int>(x - 15.0f), static_cast<int>(bounds.getBottom() - 15.0f),
+            30, 15, juce::Justification::centred);
+    }
+
+    g.setFont(juce::FontOptions(8.0f));
+    g.setColour(juce::Colours::lightgrey.withAlpha(0.7f));
+
+    std::vector<std::pair<float, juce::String>> smallLabels = {
+        {50.0f, "50"}, {250.0f, "250"}, {500.0f, "500"},
+        {2000.0f, "2k"}, {5000.0f, "5k"}
+    };
+
+    for (auto& label : smallLabels)
+    {
+        float x = juce::jmap(std::log10(label.first), std::log10(20.0f), std::log10(20000.0f),
+            bounds.getX(), bounds.getRight());
+        g.drawText(label.second, static_cast<int>(x - 12.0f), static_cast<int>(bounds.getBottom() - 15.0f),
+            24, 15, juce::Justification::centred);
     }
 }
 
 void FrequencyResponseDisplay::drawMagnitudeLabels(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
+
     g.setColour(juce::Colours::lightgrey);
-    g.setFont(10.0f);
+    g.setFont(juce::FontOptions(10.0f));
 
     for (int db = -48; db <= 12; db += 12)
     {
         float y = juce::jmap((float)db, -48.0f, 12.0f, bounds.getBottom(), bounds.getY());
         juce::String text = juce::String(db) + " dB";
-        g.drawText(text, 5, y - 7, 40, 14, juce::Justification::left);
+        g.drawText(text, 5, static_cast<int>(y - 7.0f), 40, 14, juce::Justification::left);
+    }
+
+    g.setFont(juce::FontOptions(8.0f));
+    g.setColour(juce::Colours::lightgrey.withAlpha(0.7f));
+
+    for (int db = -44; db <= 8; db += 4)
+    {
+        if (db % 12 != 0)
+        {
+            float y = juce::jmap((float)db, -48.0f, 12.0f, bounds.getBottom(), bounds.getY());
+            juce::String text = juce::String(db);
+            g.drawText(text, 5, static_cast<int>(y - 5.0f), 30, 10, juce::Justification::left);
+        }
     }
 }
 
 void FrequencyResponseDisplay::updateResponseCurve()
 {
     audioProcessor.getFrequencyResponse(magnitudeData);
+    audioProcessor.getInputFrequencyResponse(inputMagnitudeData);
 
     if (magnitudeData.empty())
         return;
@@ -80,6 +145,7 @@ void FrequencyResponseDisplay::updateResponseCurve()
     auto bounds = getLocalBounds().toFloat().reduced(50, 20);
 
     responseCurve.clear();
+    inputCurve.clear();
 
     for (size_t i = 0; i < magnitudeData.size(); ++i)
     {
@@ -95,6 +161,11 @@ void FrequencyResponseDisplay::updateResponseCurve()
         else
             responseCurve.lineTo(x, y);
     }
+
+    float zeroY = juce::jmap(0.0f, -48.0f, 12.0f, bounds.getBottom(), bounds.getY());
+
+    inputCurve.startNewSubPath(bounds.getX(), zeroY);
+    inputCurve.lineTo(bounds.getRight(), zeroY);
 }
 
 void FrequencyResponseDisplay::paint(juce::Graphics& g)
@@ -103,10 +174,32 @@ void FrequencyResponseDisplay::paint(juce::Graphics& g)
 
     drawGrid(g);
 
+    auto bounds = getLocalBounds().toFloat().reduced(50, 20);
+
     if (!responseCurve.isEmpty())
     {
-        g.setColour(juce::Colours::cyan.withAlpha(0.9f));
-        g.strokePath(responseCurve, juce::PathStrokeType(2.0f));
+        juce::Path fillPath = responseCurve;
+        float zeroY = juce::jmap(0.0f, -48.0f, 12.0f, bounds.getBottom(), bounds.getY());
+
+        juce::PathStrokeType strokeType(2.0f);
+        juce::Path strokedPath;
+        strokeType.createStrokedPath(strokedPath, responseCurve);
+
+        fillPath.lineTo(bounds.getRight(), zeroY);
+        fillPath.lineTo(bounds.getX(), zeroY);
+        fillPath.closeSubPath();
+
+        g.setColour(juce::Colour(0, 255, 255).withAlpha(0.2f));
+        g.fillPath(fillPath);
+
+        g.setColour(juce::Colour(0, 255, 255).withAlpha(0.9f));
+        g.strokePath(responseCurve, juce::PathStrokeType(2.5f));
+    }
+
+    if (!inputCurve.isEmpty())
+    {
+        g.setColour(juce::Colours::grey.withAlpha(0.5f));
+        g.strokePath(inputCurve, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     drawFrequencyLabels(g);
@@ -127,7 +220,7 @@ void FrequencyResponseDisplay::timerCallback()
 DynamicFilterProcessorEditor::DynamicFilterProcessorEditor(DynamicFilterProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p), responseDisplay(p)
 {
-    setSize(700, 500);
+    setSize(800, 550);
     setLookAndFeel(&customLookAndFeel);
 
     addAndMakeVisible(cutoffSlider);
@@ -150,10 +243,23 @@ DynamicFilterProcessorEditor::DynamicFilterProcessorEditor(DynamicFilterProcesso
         audioProcessor.apvts, "q", qSlider);
 
     addAndMakeVisible(qLabel);
-    qLabel.setText("Q / Resonance", juce::dontSendNotification);
+    qLabel.setText("Q Factor", juce::dontSendNotification);
     qLabel.setJustificationType(juce::Justification::centred);
     qLabel.attachToComponent(&qSlider, false);
     qLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+
+    addAndMakeVisible(resonanceSlider);
+    resonanceSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+    resonanceSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
+    resonanceSlider.setTextValueSuffix(" dB");
+    resonanceAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        audioProcessor.apvts, "resonance", resonanceSlider);
+
+    addAndMakeVisible(resonanceLabel);
+    resonanceLabel.setText("Resonance", juce::dontSendNotification);
+    resonanceLabel.setJustificationType(juce::Justification::centred);
+    resonanceLabel.attachToComponent(&resonanceSlider, false);
+    resonanceLabel.setColour(juce::Label::textColourId, juce::Colours::white);
 
     addAndMakeVisible(typeComboBox);
     typeComboBox.addItem("High-Pass", 1);
@@ -202,17 +308,17 @@ DynamicFilterProcessorEditor::DynamicFilterProcessorEditor(DynamicFilterProcesso
     addAndMakeVisible(inputMeterLabel);
     inputMeterLabel.setJustificationType(juce::Justification::centredLeft);
     inputMeterLabel.setColour(juce::Label::textColourId, juce::Colours::lightgreen);
-    inputMeterLabel.setFont(12.0f);
+    inputMeterLabel.setFont(juce::FontOptions(12.0f));
 
     addAndMakeVisible(outputMeterLabel);
     outputMeterLabel.setJustificationType(juce::Justification::centredLeft);
     outputMeterLabel.setColour(juce::Label::textColourId, juce::Colours::cyan);
-    outputMeterLabel.setFont(12.0f);
+    outputMeterLabel.setFont(juce::FontOptions(12.0f));
 
     addAndMakeVisible(gainReductionLabel);
     gainReductionLabel.setJustificationType(juce::Justification::centredLeft);
     gainReductionLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
-    gainReductionLabel.setFont(12.0f);
+    gainReductionLabel.setFont(juce::FontOptions(12.0f));
 
     startTimerHz(15);
 }
@@ -248,7 +354,7 @@ void DynamicFilterProcessorEditor::paint(juce::Graphics& g)
     g.fillRect(headerArea);
 
     g.setColour(juce::Colours::white);
-    g.setFont(24.0f);
+    g.setFont(juce::FontOptions(24.0f));
     g.drawText("Professional Dynamic Filter", headerArea, juce::Justification::centred);
 }
 
@@ -260,19 +366,22 @@ void DynamicFilterProcessorEditor::resized()
 
     auto mainArea = bounds.reduced(10);
 
-    auto displayArea = mainArea.removeFromTop(mainArea.getHeight() * 0.55f);
+    auto displayArea = mainArea.removeFromTop(static_cast<int>(mainArea.getHeight() * 0.55f));
     responseDisplay.setBounds(displayArea.reduced(5));
 
     auto controlsArea = mainArea.reduced(5);
 
     auto rotaryArea = controlsArea.removeFromTop(120);
-    int rotaryWidth = rotaryArea.getWidth() / 2;
+    int rotaryWidth = rotaryArea.getWidth() / 3;
 
     auto cutoffArea = rotaryArea.removeFromLeft(rotaryWidth).reduced(10);
     cutoffSlider.setBounds(cutoffArea.removeFromTop(100));
 
-    auto qArea = rotaryArea.reduced(10);
+    auto qArea = rotaryArea.removeFromLeft(rotaryWidth).reduced(10);
     qSlider.setBounds(qArea.removeFromTop(100));
+
+    auto resonanceArea = rotaryArea.reduced(10);
+    resonanceSlider.setBounds(resonanceArea.removeFromTop(100));
 
     controlsArea.removeFromTop(10);
 

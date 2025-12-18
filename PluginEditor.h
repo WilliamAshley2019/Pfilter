@@ -15,7 +15,9 @@ public:
 private:
     DynamicFilterProcessor& audioProcessor;
     std::vector<float> magnitudeData;
+    std::vector<float> inputMagnitudeData;
     juce::Path responseCurve;
+    juce::Path inputCurve;
 
     void drawGrid(juce::Graphics& g);
     void drawFrequencyLabels(juce::Graphics& g);
@@ -90,6 +92,10 @@ private:
     juce::Slider qSlider;
     juce::Label qLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> qAttachment;
+
+    juce::Slider resonanceSlider;
+    juce::Label resonanceLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> resonanceAttachment;
 
     juce::ComboBox typeComboBox;
     juce::Label typeLabel;
