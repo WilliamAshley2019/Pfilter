@@ -62,8 +62,9 @@ void DynamicFilterProcessor::prepareToPlay(double sampleRate, int samplesPerBloc
     currentQ = initQ;
     currentResonance = initResonance;
 
-    inputSpectrumBuffer.setSize(2, samplesPerBlock);
-    inputMagnitudes.resize(512, 0.0f);
+    inputWaveformData.resize(waveformSize, 0.0f);
+    outputWaveformData.resize(waveformSize, 0.0f);
+    waveformWritePos = 0;
 
     updateFilterCoefficients();
 
@@ -103,6 +104,14 @@ void DynamicFilterProcessor::updateFilterCoefficients()
     int type = currentType;
     int slopeIndex = currentSlope / 12 - 1;
     int characteristic = currentCharacteristic;
+
+    bool cutoffBypass = *apvts.getRawParameterValue("cutoffBypass") > 0.5f;
+    bool qBypass = *apvts.getRawParameterValue("qBypass") > 0.5f;
+    bool resonanceBypass = *apvts.getRawParameterValue("resonanceBypass") > 0.5f;
+
+    if (cutoffBypass) cutoff = 1000.0f;
+    if (qBypass) q = 0.707f;
+    if (resonanceBypass) resonance = 0.0f;
 
     int slope = (slopeIndex + 1) * 12;
     int numStages = slope / 12;
@@ -203,16 +212,39 @@ void DynamicFilterProcessor::updateFilterCoefficients()
     }
 }
 
-void DynamicFilterProcessor::captureInputSpectrum(const juce::AudioBuffer<float>& buffer)
+void DynamicFilterProcessor::captureWaveforms(const juce::AudioBuffer<float>& input, const juce::AudioBuffer<float>& output)
 {
-    juce::ScopedLock lock(inputSpectrumLock);
+    bool visualizerEnabled = *apvts.getRawParameterValue("visualizerEnabled") > 0.5f;
 
-    int numSamples = juce::jmin(buffer.getNumSamples(), inputSpectrumBuffer.getNumSamples());
-    int numChannels = juce::jmin(buffer.getNumChannels(), inputSpectrumBuffer.getNumChannels());
+    if (!visualizerEnabled)
+        return;
 
-    for (int ch = 0; ch < numChannels; ++ch)
+    juce::ScopedLock lock(waveformLock);
+
+    int numSamples = juce::jmin(input.getNumSamples(), 128);
+    int numChannels = juce::jmin(input.getNumChannels(), output.getNumChannels());
+
+    if (numChannels == 0)
+        return;
+
+    for (int i = 0; i < numSamples; ++i)
     {
-        inputSpectrumBuffer.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+        float inputSample = 0.0f;
+        float outputSample = 0.0f;
+
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            inputSample += input.getSample(ch, i);
+            outputSample += output.getSample(ch, i);
+        }
+
+        inputSample /= static_cast<float>(numChannels);
+        outputSample /= static_cast<float>(numChannels);
+
+        inputWaveformData[waveformWritePos] = inputSample;
+        outputWaveformData[waveformWritePos] = outputSample;
+
+        waveformWritePos = (waveformWritePos + 1) % waveformSize;
     }
 }
 
@@ -263,10 +295,16 @@ void DynamicFilterProcessor::updateMetrics(const juce::AudioBuffer<float>& input
     }
 }
 
-void DynamicFilterProcessor::getInputFrequencyResponse(std::vector<float>& magnitudes)
+void DynamicFilterProcessor::getInputWaveform(std::vector<float>& waveform)
 {
-    juce::ScopedLock lock(inputSpectrumLock);
-    magnitudes = inputMagnitudes;
+    juce::ScopedLock lock(waveformLock);
+    waveform = inputWaveformData;
+}
+
+void DynamicFilterProcessor::getOutputWaveform(std::vector<float>& waveform)
+{
+    juce::ScopedLock lock(waveformLock);
+    waveform = outputWaveformData;
 }
 
 void DynamicFilterProcessor::getFrequencyResponse(std::vector<float>& magnitudes)
@@ -312,8 +350,6 @@ void DynamicFilterProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
     juce::AudioBuffer<float> inputCopy;
     inputCopy.makeCopyOf(buffer);
 
-    captureInputSpectrum(inputCopy);
-
     bool bypass = *apvts.getRawParameterValue("bypass") > 0.5f;
     bypassState = bypass;
 
@@ -326,9 +362,13 @@ void DynamicFilterProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         int newSlope = (static_cast<int>(*apvts.getRawParameterValue("slope")) + 1) * 12;
         int newChar = static_cast<int>(*apvts.getRawParameterValue("characteristic"));
 
-        smoothedCutoff.setTargetValue(targetCutoff);
-        smoothedQ.setTargetValue(targetQ);
-        smoothedResonance.setTargetValue(targetResonance);
+        bool cutoffBypass = *apvts.getRawParameterValue("cutoffBypass") > 0.5f;
+        bool qBypass = *apvts.getRawParameterValue("qBypass") > 0.5f;
+        bool resonanceBypass = *apvts.getRawParameterValue("resonanceBypass") > 0.5f;
+
+        if (!cutoffBypass) smoothedCutoff.setTargetValue(targetCutoff);
+        if (!qBypass) smoothedQ.setTargetValue(targetQ);
+        if (!resonanceBypass) smoothedResonance.setTargetValue(targetResonance);
 
         bool structuralChange = (newType != previousType) ||
             (newSlope != previousSlope) ||
@@ -347,9 +387,9 @@ void DynamicFilterProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
             currentSlope = newSlope;
             currentCharacteristic = newChar;
 
-            currentCutoff = smoothedCutoff.getNextValue();
-            currentQ = smoothedQ.getNextValue();
-            currentResonance = smoothedResonance.getNextValue();
+            if (!cutoffBypass) currentCutoff = smoothedCutoff.getNextValue();
+            if (!qBypass) currentQ = smoothedQ.getNextValue();
+            if (!resonanceBypass) currentResonance = smoothedResonance.getNextValue();
 
             updateFilterCoefficients();
         }
@@ -359,21 +399,40 @@ void DynamicFilterProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
 
         for (int sample = 0; sample < numSamples; ++sample)
         {
-            float smoothCutoff = smoothedCutoff.getNextValue();
-            float smoothQ = smoothedQ.getNextValue();
-            float smoothResonance = smoothedResonance.getNextValue();
+            bool needsUpdate = false;
 
-            bool needsUpdate = std::abs(smoothCutoff - currentCutoff) > 0.1f ||
-                std::abs(smoothQ - currentQ) > 0.001f ||
-                std::abs(smoothResonance - currentResonance) > 0.01f;
+            if (!cutoffBypass)
+            {
+                float smoothCutoff = smoothedCutoff.getNextValue();
+                if (std::abs(smoothCutoff - currentCutoff) > 0.1f)
+                {
+                    currentCutoff = smoothCutoff;
+                    needsUpdate = true;
+                }
+            }
+
+            if (!qBypass)
+            {
+                float smoothQ = smoothedQ.getNextValue();
+                if (std::abs(smoothQ - currentQ) > 0.001f)
+                {
+                    currentQ = smoothQ;
+                    needsUpdate = true;
+                }
+            }
+
+            if (!resonanceBypass)
+            {
+                float smoothResonance = smoothedResonance.getNextValue();
+                if (std::abs(smoothResonance - currentResonance) > 0.01f)
+                {
+                    currentResonance = smoothResonance;
+                    needsUpdate = true;
+                }
+            }
 
             if (needsUpdate)
-            {
-                currentCutoff = smoothCutoff;
-                currentQ = smoothQ;
-                currentResonance = smoothResonance;
                 updateFilterCoefficients();
-            }
 
             if (numChannels >= 1)
             {
@@ -417,6 +476,7 @@ void DynamicFilterProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce
         }
     }
 
+    captureWaveforms(inputCopy, buffer);
     updateMetrics(inputCopy, buffer);
 }
 
@@ -448,6 +508,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout DynamicFilterProcessor::crea
 
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID("bypass", 1), "Bypass", false));
+
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("visualizerEnabled", 1), "Visualizer", true));
+
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("cutoffBypass", 1), "Cutoff Bypass", false));
+
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("qBypass", 1), "Q Bypass", false));
+
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        juce::ParameterID("resonanceBypass", 1), "Resonance Bypass", false));
 
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID("cutoff", 1),

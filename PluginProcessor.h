@@ -42,7 +42,8 @@ public:
     float getGainReduction() const { return gainReduction.load(std::memory_order_relaxed); }
 
     void getFrequencyResponse(std::vector<float>& magnitudes);
-    void getInputFrequencyResponse(std::vector<float>& magnitudes);
+    void getInputWaveform(std::vector<float>& waveform);
+    void getOutputWaveform(std::vector<float>& waveform);
 
 private:
     using Filter = juce::dsp::IIR::Filter<float>;
@@ -95,13 +96,15 @@ private:
     int levelSampleCount{ 0 };
     static constexpr int levelUpdateInterval = 2048;
 
-    juce::AudioBuffer<float> inputSpectrumBuffer;
-    std::vector<float> inputMagnitudes;
-    juce::CriticalSection inputSpectrumLock;
+    static constexpr int waveformSize = 512;
+    std::vector<float> inputWaveformData;
+    std::vector<float> outputWaveformData;
+    juce::CriticalSection waveformLock;
+    int waveformWritePos{ 0 };
 
     void updateFilterCoefficients();
     void updateMetrics(const juce::AudioBuffer<float>& input, const juce::AudioBuffer<float>& output);
-    void captureInputSpectrum(const juce::AudioBuffer<float>& buffer);
+    void captureWaveforms(const juce::AudioBuffer<float>& input, const juce::AudioBuffer<float>& output);
 
     juce::CriticalSection coefficientLock;
     std::vector<FilterCoefs::Ptr> currentCoefficients;

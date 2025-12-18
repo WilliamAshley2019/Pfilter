@@ -15,13 +15,14 @@ public:
 private:
     DynamicFilterProcessor& audioProcessor;
     std::vector<float> magnitudeData;
-    std::vector<float> inputMagnitudeData;
+    std::vector<float> inputWaveformData;
+    std::vector<float> outputWaveformData;
     juce::Path responseCurve;
-    juce::Path inputCurve;
 
     void drawGrid(juce::Graphics& g);
     void drawFrequencyLabels(juce::Graphics& g);
     void drawMagnitudeLabels(juce::Graphics& g);
+    void drawWaveforms(juce::Graphics& g);
     void updateResponseCurve();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FrequencyResponseDisplay)
@@ -87,15 +88,21 @@ private:
 
     juce::Slider cutoffSlider;
     juce::Label cutoffLabel;
+    juce::ToggleButton cutoffBypassButton{ "OFF" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> cutoffAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> cutoffBypassAttachment;
 
     juce::Slider qSlider;
     juce::Label qLabel;
+    juce::ToggleButton qBypassButton{ "OFF" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> qAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> qBypassAttachment;
 
     juce::Slider resonanceSlider;
     juce::Label resonanceLabel;
+    juce::ToggleButton resonanceBypassButton{ "OFF" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> resonanceAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> resonanceBypassAttachment;
 
     juce::ComboBox typeComboBox;
     juce::Label typeLabel;
@@ -111,6 +118,9 @@ private:
 
     juce::ToggleButton bypassButton{ "Bypass" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
+
+    juce::ToggleButton visualizerButton{ "Visualizer" };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> visualizerAttachment;
 
     FrequencyResponseDisplay responseDisplay;
 

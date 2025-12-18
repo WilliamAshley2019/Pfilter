@@ -70,6 +70,53 @@ void FrequencyResponseDisplay::drawGrid(juce::Graphics& g)
     }
 }
 
+void FrequencyResponseDisplay::drawWaveforms(juce::Graphics& g)
+{
+    auto bounds = getLocalBounds().toFloat().reduced(50, 20);
+
+    if (inputWaveformData.empty() || outputWaveformData.empty())
+        return;
+
+    float centerY = bounds.getCentreY();
+    float heightScale = bounds.getHeight() * 0.15f;
+
+    juce::Path inputPath;
+    juce::Path outputPath;
+
+    for (size_t i = 0; i < inputWaveformData.size(); ++i)
+    {
+        float x = juce::jmap((float)i, 0.0f, (float)inputWaveformData.size(),
+            bounds.getX(), bounds.getRight());
+        float inputY = centerY - (inputWaveformData[i] * heightScale);
+        float outputY = centerY - (outputWaveformData[i] * heightScale);
+
+        if (i == 0)
+        {
+            inputPath.startNewSubPath(x, inputY);
+            outputPath.startNewSubPath(x, outputY);
+        }
+        else
+        {
+            inputPath.lineTo(x, inputY);
+            outputPath.lineTo(x, outputY);
+        }
+    }
+
+    g.setColour(juce::Colour(100, 20, 30).withAlpha(0.6f));
+    g.strokePath(inputPath, juce::PathStrokeType(1.5f));
+
+    juce::Path outputFillPath = outputPath;
+    outputFillPath.lineTo(bounds.getRight(), centerY);
+    outputFillPath.lineTo(bounds.getX(), centerY);
+    outputFillPath.closeSubPath();
+
+    g.setColour(juce::Colour(180, 40, 60).withAlpha(0.15f));
+    g.fillPath(outputFillPath);
+
+    g.setColour(juce::Colour(220, 80, 100).withAlpha(0.8f));
+    g.strokePath(outputPath, juce::PathStrokeType(1.8f));
+}
+
 void FrequencyResponseDisplay::drawFrequencyLabels(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
@@ -137,7 +184,8 @@ void FrequencyResponseDisplay::drawMagnitudeLabels(juce::Graphics& g)
 void FrequencyResponseDisplay::updateResponseCurve()
 {
     audioProcessor.getFrequencyResponse(magnitudeData);
-    audioProcessor.getInputFrequencyResponse(inputMagnitudeData);
+    audioProcessor.getInputWaveform(inputWaveformData);
+    audioProcessor.getOutputWaveform(outputWaveformData);
 
     if (magnitudeData.empty())
         return;
@@ -145,7 +193,6 @@ void FrequencyResponseDisplay::updateResponseCurve()
     auto bounds = getLocalBounds().toFloat().reduced(50, 20);
 
     responseCurve.clear();
-    inputCurve.clear();
 
     for (size_t i = 0; i < magnitudeData.size(); ++i)
     {
@@ -161,11 +208,6 @@ void FrequencyResponseDisplay::updateResponseCurve()
         else
             responseCurve.lineTo(x, y);
     }
-
-    float zeroY = juce::jmap(0.0f, -48.0f, 12.0f, bounds.getBottom(), bounds.getY());
-
-    inputCurve.startNewSubPath(bounds.getX(), zeroY);
-    inputCurve.lineTo(bounds.getRight(), zeroY);
 }
 
 void FrequencyResponseDisplay::paint(juce::Graphics& g)
@@ -173,6 +215,7 @@ void FrequencyResponseDisplay::paint(juce::Graphics& g)
     g.fillAll(juce::Colours::black);
 
     drawGrid(g);
+    drawWaveforms(g);
 
     auto bounds = getLocalBounds().toFloat().reduced(50, 20);
 
@@ -180,10 +223,6 @@ void FrequencyResponseDisplay::paint(juce::Graphics& g)
     {
         juce::Path fillPath = responseCurve;
         float zeroY = juce::jmap(0.0f, -48.0f, 12.0f, bounds.getBottom(), bounds.getY());
-
-        juce::PathStrokeType strokeType(2.0f);
-        juce::Path strokedPath;
-        strokeType.createStrokedPath(strokedPath, responseCurve);
 
         fillPath.lineTo(bounds.getRight(), zeroY);
         fillPath.lineTo(bounds.getX(), zeroY);
@@ -194,12 +233,6 @@ void FrequencyResponseDisplay::paint(juce::Graphics& g)
 
         g.setColour(juce::Colour(0, 255, 255).withAlpha(0.9f));
         g.strokePath(responseCurve, juce::PathStrokeType(2.5f));
-    }
-
-    if (!inputCurve.isEmpty())
-    {
-        g.setColour(juce::Colours::grey.withAlpha(0.5f));
-        g.strokePath(inputCurve, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     drawFrequencyLabels(g);
@@ -220,7 +253,7 @@ void FrequencyResponseDisplay::timerCallback()
 DynamicFilterProcessorEditor::DynamicFilterProcessorEditor(DynamicFilterProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p), responseDisplay(p)
 {
-    setSize(800, 550);
+    setSize(850, 580);
     setLookAndFeel(&customLookAndFeel);
 
     addAndMakeVisible(cutoffSlider);
@@ -236,6 +269,11 @@ DynamicFilterProcessorEditor::DynamicFilterProcessorEditor(DynamicFilterProcesso
     cutoffLabel.attachToComponent(&cutoffSlider, false);
     cutoffLabel.setColour(juce::Label::textColourId, juce::Colours::white);
 
+    addAndMakeVisible(cutoffBypassButton);
+    cutoffBypassButton.setColour(juce::ToggleButton::textColourId, juce::Colours::white);
+    cutoffBypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        audioProcessor.apvts, "cutoffBypass", cutoffBypassButton);
+
     addAndMakeVisible(qSlider);
     qSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
     qSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
@@ -247,6 +285,11 @@ DynamicFilterProcessorEditor::DynamicFilterProcessorEditor(DynamicFilterProcesso
     qLabel.setJustificationType(juce::Justification::centred);
     qLabel.attachToComponent(&qSlider, false);
     qLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+
+    addAndMakeVisible(qBypassButton);
+    qBypassButton.setColour(juce::ToggleButton::textColourId, juce::Colours::white);
+    qBypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        audioProcessor.apvts, "qBypass", qBypassButton);
 
     addAndMakeVisible(resonanceSlider);
     resonanceSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
@@ -260,6 +303,11 @@ DynamicFilterProcessorEditor::DynamicFilterProcessorEditor(DynamicFilterProcesso
     resonanceLabel.setJustificationType(juce::Justification::centred);
     resonanceLabel.attachToComponent(&resonanceSlider, false);
     resonanceLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+
+    addAndMakeVisible(resonanceBypassButton);
+    resonanceBypassButton.setColour(juce::ToggleButton::textColourId, juce::Colours::white);
+    resonanceBypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        audioProcessor.apvts, "resonanceBypass", resonanceBypassButton);
 
     addAndMakeVisible(typeComboBox);
     typeComboBox.addItem("High-Pass", 1);
@@ -302,6 +350,10 @@ DynamicFilterProcessorEditor::DynamicFilterProcessorEditor(DynamicFilterProcesso
     addAndMakeVisible(bypassButton);
     bypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
         audioProcessor.apvts, "bypass", bypassButton);
+
+    addAndMakeVisible(visualizerButton);
+    visualizerAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        audioProcessor.apvts, "visualizerEnabled", visualizerButton);
 
     addAndMakeVisible(responseDisplay);
 
@@ -371,16 +423,19 @@ void DynamicFilterProcessorEditor::resized()
 
     auto controlsArea = mainArea.reduced(5);
 
-    auto rotaryArea = controlsArea.removeFromTop(120);
+    auto rotaryArea = controlsArea.removeFromTop(130);
     int rotaryWidth = rotaryArea.getWidth() / 3;
 
     auto cutoffArea = rotaryArea.removeFromLeft(rotaryWidth).reduced(10);
+    cutoffBypassButton.setBounds(cutoffArea.removeFromTop(20).removeFromRight(50));
     cutoffSlider.setBounds(cutoffArea.removeFromTop(100));
 
     auto qArea = rotaryArea.removeFromLeft(rotaryWidth).reduced(10);
+    qBypassButton.setBounds(qArea.removeFromTop(20).removeFromRight(50));
     qSlider.setBounds(qArea.removeFromTop(100));
 
     auto resonanceArea = rotaryArea.reduced(10);
+    resonanceBypassButton.setBounds(resonanceArea.removeFromTop(20).removeFromRight(50));
     resonanceSlider.setBounds(resonanceArea.removeFromTop(100));
 
     controlsArea.removeFromTop(10);
@@ -405,6 +460,7 @@ void DynamicFilterProcessorEditor::resized()
     auto bottomArea = controlsArea.removeFromTop(40);
 
     bypassButton.setBounds(bottomArea.removeFromRight(100).reduced(5));
+    visualizerButton.setBounds(bottomArea.removeFromRight(100).reduced(5));
 
     auto metersArea = bottomArea.reduced(5);
     int meterWidth = metersArea.getWidth() / 3;
